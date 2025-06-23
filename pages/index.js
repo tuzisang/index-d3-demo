@@ -442,13 +442,13 @@ export default function Home() {
         <title>全景血缘图生成器 (Cytoscape版)</title>
       </Head>
       {/* 确保脚本加载策略为 beforeInteractive，且顺序正确 */}
-      <Script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.23.0/cytoscape.min.js" strategy="beforeInteractive" />
-      <Script src="https://cdnjs.cloudflare.com/ajax/libs/graphlib/2.1.8/graphlib.min.js" strategy="beforeInteractive" />
-      <Script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js" strategy="beforeInteractive" />
-      <Script src="https://cdn.jsdelivr.net/npm/cytoscape-edgehandles@3.5.0/cytoscape-edgehandles.min.js" strategy="beforeInteractive" />
-      <Script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.3.2/cytoscape-dagre.min.js" strategy="beforeInteractive" />
+      <Script src="/libs/cytoscape.min.js" strategy="beforeInteractive" />
+      <Script src="/libs/graphlib.min.js" strategy="beforeInteractive" />
+      <Script src="/libs/dagre.min.js" strategy="beforeInteractive" />
+      <Script src="/libs/cytoscape-edgehandles.min.js" strategy="beforeInteractive" />
+      <Script src="/libs/cytoscape-dagre.min.js" strategy="beforeInteractive" />
       <Script 
-        src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" 
+        src="/libs/xlsx.full.min.js" 
         strategy="beforeInteractive"
         onLoad={() => console.log('XLSX库已加载完成')}
         onError={(e) => console.error('XLSX库加载失败:', e)}
