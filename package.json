@@ -1,0 +1,23 @@
+{
+  "name": "index-d3-demo",
+  "version": "1.0.0",
+  "description": "基于D3.js开发的交互式血缘关系（Lineage）可视化工具，支持从Excel文件构建有向无环图（DAG）。",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "next": "^15.3.4",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  }
+}
