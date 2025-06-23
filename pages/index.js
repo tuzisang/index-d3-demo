@@ -10,17 +10,18 @@ const COLUMN_MAP = {
 }
 
 // 定义 Cytoscape 内部使用的颜色常量，不再使用 CSS 变量
-const CY_NODE_COLOR = '#4FC3F7'
-const CY_EDGE_COLOR = '#B0BEC5'
-const CY_HIGHLIGHT_NODE_BG = '#FFD700'
-const CY_HIGHLIGHT_NODE_BORDER = '#FFA500'
-const CY_HIGHLIGHT_EDGE_COLOR = '#FF4500'
-const CY_EDGEHANDLE_COLOR = '#FF5722'
+const CY_NODE_COLOR = '#4FC3F7' // 浅蓝色
+const CY_EDGE_COLOR = '#90A4AE' // 柔和的灰色
+const CY_HIGHLIGHT_NODE_BG = '#FFEB3B' // 亮黄色
+const CY_HIGHLIGHT_NODE_BORDER = '#FFC107' // 橙黄色
+const CY_HIGHLIGHT_EDGE_COLOR = '#FF5722' // 橙红色
+const CY_EDGEHANDLE_COLOR = '#FF5722' // 橙红色
 
 export default function Home() {
   const cyRef = useRef(null) // 使用 useRef 存储 Cytoscape 实例
+  const fileInputRef = useRef(null); // 用于直接操作文件输入框
   const [isLoading, setIsLoading] = useState(false) // 加载状态
-  const [uploadedFileName, setUploadedFileName] = useState('全景血缘图') // 上传文件名状态
+  const [uploadedFileName, setUploadedFileName] = useState('未选择文件') // 上传文件名状态
 
   // 提示消息函数
   const showToast = useCallback((message, isError = false) => {
@@ -72,6 +73,7 @@ export default function Home() {
 
     const a = document.createElement('a')
     a.href = image
+    // 使用 uploadedFileName 命名，并移除可能的 Excel 后缀，确保下载的是当前图表
     a.download = uploadedFileName.replace(/\.(xlsx|xls)$/i, '') + '.png'
     document.body.appendChild(a)
     a.click()
@@ -128,6 +130,8 @@ export default function Home() {
     cyRef.current = window.cytoscape({
       container: container,
       elements: [],
+      // 优化：滚轮缩放速度
+      wheelSensitivity: 0.2, // 降低滚轮缩放灵敏度，使其更平滑
       style: [
         {
           selector: 'node[label]',
@@ -138,13 +142,15 @@ export default function Home() {
             'text-margin-x': 10,
             'width': 15,
             'height': 15,
-            'background-color': CY_NODE_COLOR, // 使用硬编码颜色
-            'border-color': CY_NODE_COLOR,     // 使用硬编码颜色
+            'background-color': CY_NODE_COLOR,
+            'border-color': CY_NODE_COLOR,
             'border-width': 1,
             'font-size': '10px',
-            'color': '#000',
+            'color': '#333', // 节点文字颜色
             'text-outline-color': '#fff',
-            'text-outline-width': '0px'
+            'text-outline-width': '0px',
+            'text-wrap': 'wrap', // 允许文本换行
+            'text-max-width': '80px' // 限制文本最大宽度
           }
         },
         {
@@ -161,8 +167,8 @@ export default function Home() {
           selector: 'edge',
           style: {
             'width': 1,
-            'line-color': CY_EDGE_COLOR, // 使用硬编码颜色
-            'target-arrow-color': CY_EDGE_COLOR, // 使用硬编码颜色
+            'line-color': CY_EDGE_COLOR,
+            'target-arrow-color': CY_EDGE_COLOR,
             'target-arrow-shape': 'triangle',
             'curve-style': 'bezier',
             'source-endpoint': 'outside-to-node',
@@ -172,8 +178,8 @@ export default function Home() {
         {
           selector: '.highlighted-node',
           style: {
-            'background-color': CY_HIGHLIGHT_NODE_BG, // 使用硬编码颜色，移除 !important
-            'border-color': CY_HIGHLIGHT_NODE_BORDER, // 使用硬编码颜色，移除 !important
+            'background-color': CY_HIGHLIGHT_NODE_BG,
+            'border-color': CY_HIGHLIGHT_NODE_BORDER,
             'font-weight': 'bold',
             'color': '#333',
             'text-outline-width': '1px',
@@ -184,8 +190,8 @@ export default function Home() {
         {
           selector: '.highlighted-edge',
           style: {
-            'line-color': CY_HIGHLIGHT_EDGE_COLOR, // 使用硬编码颜色，移除 !important
-            'target-arrow-color': CY_HIGHLIGHT_EDGE_COLOR, // 使用硬编码颜色，移除 !important
+            'line-color': CY_HIGHLIGHT_EDGE_COLOR,
+            'target-arrow-color': CY_HIGHLIGHT_EDGE_COLOR,
             'width': 2,
             'z-index': 9998
           }
@@ -197,7 +203,7 @@ export default function Home() {
     if (typeof cyRef.current.edgehandles === 'function') {
       cyRef.current.edgehandles({
         handleSize: 10,
-        handleColor: CY_EDGEHANDLE_COLOR, // 使用硬编码颜色
+        handleColor: CY_EDGEHANDLE_COLOR,
         hoverDelay: 150,
         snap: true,
         snapThreshold: 20,
@@ -231,7 +237,7 @@ export default function Home() {
           data: {
             id: rootId,
             label: value,
-            color: CY_NODE_COLOR // 确保这里也使用硬编码颜色
+            color: CY_NODE_COLOR
           }
         })
         nodeMap.set(rootId, true)
@@ -256,7 +262,7 @@ export default function Home() {
                 data: {
                   id: nodeId,
                   label: cellValue,
-                  color: CY_NODE_COLOR // 确保这里也使用硬编码颜色
+                  color: CY_NODE_COLOR
                 }
               })
               nodeMap.set(nodeId, true)
@@ -344,10 +350,17 @@ export default function Home() {
   // 文件处理函数
   const handleFile = useCallback(async (e) => {
     const file = e.target.files[0]
-    if (!file) return
+    if (!file) {
+      setUploadedFileName('未选择文件'); // 用户取消选择时重置
+      // 确保文件输入框的值被清空，以便再次选择相同文件时能触发 change 事件
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      return;
+    }
 
     setIsLoading(true) // 开始加载
-    setUploadedFileName(file.name)
+    setUploadedFileName(file.name) // 设置当前上传的文件名
 
     const reader = new FileReader()
     reader.onload = function (e) {
@@ -365,14 +378,24 @@ export default function Home() {
       } catch (error) {
         console.error('文件读取或解析失败:', error)
         showToast(`文件读取或解析失败: ${error.message}`, true)
+        setUploadedFileName('文件解析失败'); // 错误时更新文件名状态
       } finally {
         setIsLoading(false) // 结束加载
+        // 确保文件输入框的值被清空，以便再次选择相同文件时能触发 change 事件
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
       }
     }
     reader.onerror = (error) => {
       console.error('FileReader error:', error)
       showToast('文件读取失败，请重试。', true)
       setIsLoading(false)
+      setUploadedFileName('文件读取失败'); // 错误时更新文件名状态
+      // 确保文件输入框的值被清空
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
     reader.readAsArrayBuffer(file)
   }, [generateDAG, showToast])
@@ -398,13 +421,28 @@ export default function Home() {
       }
 
       // 绑定事件监听器
-      const fileInput = document.getElementById('file-input')
-      const resetZoomBtn = document.getElementById('reset-zoom')
-      const downloadImageBtn = document.getElementById('download-image')
+      // 使用 ref 获取 DOM 元素，确保在组件生命周期内稳定
+      const currentFileInput = fileInputRef.current;
+      const resetZoomBtn = document.getElementById('reset-zoom');
+      const downloadImageBtn = document.getElementById('download-image');
 
-      if (fileInput) fileInput.addEventListener('change', handleFile)
-      if (resetZoomBtn) resetZoomBtn.addEventListener('click', resetZoom)
-      if (downloadImageBtn) downloadImageBtn.addEventListener('click', downloadImage)
+      // 确保事件监听器只添加一次，并使用 useCallback 包装的函数
+      // React 18 的 StrictMode 会在开发模式下双重渲染 useEffect，导致事件重复绑定
+      // 最佳实践是让 useEffect 的清理函数负责移除监听器，并确保依赖项正确
+      // 这里我们直接使用 React 的事件处理，而不是手动 addEventListener
+      // 但由于你使用了 ID 获取 DOM 并手动绑定，需要确保移除旧的
+      if (currentFileInput) {
+        currentFileInput.removeEventListener('change', handleFile); // 移除旧的
+        currentFileInput.addEventListener('change', handleFile); // 添加新的
+      }
+      if (resetZoomBtn) {
+        resetZoomBtn.removeEventListener('click', resetZoom);
+        resetZoomBtn.addEventListener('click', resetZoom);
+      }
+      if (downloadImageBtn) {
+        downloadImageBtn.removeEventListener('click', downloadImage);
+        downloadImageBtn.addEventListener('click', downloadImage);
+      }
 
       // 新增：监听窗口大小变化，并通知 Cytoscape 重新布局
       const handleResize = () => {
@@ -418,11 +456,12 @@ export default function Home() {
       
       // 清理函数：在组件卸载时移除事件监听器和销毁 Cytoscape 实例
       return () => {
-        const fileInput = document.getElementById('file-input')
-        const resetZoomBtn = document.getElementById('reset-zoom')
-        const downloadImageBtn = document.getElementById('download-image')
+        // 使用 ref 获取 DOM 元素进行清理
+        const currentFileInput = fileInputRef.current;
+        const resetZoomBtn = document.getElementById('reset-zoom');
+        const downloadImageBtn = document.getElementById('download-image');
 
-        if (fileInput) fileInput.removeEventListener('change', handleFile)
+        if (currentFileInput) currentFileInput.removeEventListener('change', handleFile)
         if (resetZoomBtn) resetZoomBtn.removeEventListener('click', resetZoom)
         if (downloadImageBtn) downloadImageBtn.removeEventListener('click', downloadImage)
         window.removeEventListener('resize', handleResize); // 移除 resize 监听器
@@ -463,10 +502,16 @@ export default function Home() {
         <div className="controls">
           <label className="file-input-label" htmlFor="file-input">
             选择Excel文件
-            <input type="file" id="file-input" accept=".xlsx, .xls" style={{display:'none'}} />
+            {/* 关联 fileInputRef */}
+            <input type="file" id="file-input" accept=".xlsx, .xls" style={{display:'none'}} ref={fileInputRef} />
           </label>
           <button className="action-btn" id="reset-zoom" disabled={isLoading}>重置视图</button>
           <button className="action-btn" id="download-image" disabled={isLoading}>下载为图片</button>
+        </div>
+
+        {/* 新增：显示当前选择的 Excel 文件名 */}
+        <div className="file-display-area">
+          <p>当前文件: <span className="current-file-name">{uploadedFileName}</span></p>
         </div>
 
         {isLoading && (
@@ -486,6 +531,7 @@ export default function Home() {
       </footer>
 
       <style jsx>{`
+        /* 全局样式和字体 */
         * {
           margin: 0;
           padding: 0;
@@ -493,11 +539,11 @@ export default function Home() {
         }
 
         body {
-          background-color: #FFFFFF;
-          color: #333;
-          font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          background-color: #F8F9FA; /* 浅灰色背景 */
+          color: #343A40; /* 深灰色文字 */
+          font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; /* 优先使用 Inter 字体 */
           padding: 20px;
-          min-height: 100vh; /* 确保body有最小高度，以便vh单位生效 */
+          min-height: 100vh;
           display: flex;
           flex-direction: column;
           align-items: center;
@@ -510,88 +556,114 @@ export default function Home() {
           display: flex;
           flex-direction: column;
           align-items: center;
-          flex-grow: 1; /* 让container也占据可用空间 */
+          flex-grow: 1;
         }
 
         main {
           width: 100%;
-          flex-grow: 1; /* 让main占据剩余空间 */
+          flex-grow: 1;
           display: flex;
-          flex-direction: column; /* 内部元素垂直排列 */
+          flex-direction: column;
+          background-color: #FFFFFF; /* 主内容区白色背景 */
+          border-radius: 12px; /* 更大的圆角 */
+          box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08); /* 更柔和的阴影 */
+          padding: 30px; /* 增加内边距 */
         }
 
         .header {
           text-align: center;
-          margin-bottom: 20px;
-          padding: 15px;
-          color: #333;
+          margin-bottom: 30px; /* 增加间距 */
+          padding-bottom: 15px;
+          border-bottom: 1px solid #E9ECEF; /* 增加分隔线 */
         }
 
         .header h1 {
-          font-size: 2.2rem;
+          font-size: 2.5rem; /* 增大标题 */
           margin-bottom: 10px;
-          color: #007bff;
+          color: #007BFF; /* 品牌蓝色 */
+          font-weight: 700; /* 加粗 */
+        }
+
+        .header p {
+          font-size: 1.1rem;
+          color: #6C757D; /* 柔和的灰色 */
         }
 
         .controls {
           display: flex;
-          gap: 15px;
-          margin-bottom: 20px;
+          gap: 20px; /* 增加按钮间距 */
+          margin-bottom: 25px; /* 增加间距 */
           justify-content: center;
           flex-wrap: wrap;
         }
 
         .file-input-label, .action-btn {
-          background: #007bff;
+          background: #007BFF; /* 品牌蓝色 */
           color: white !important;
-          padding: 12px 20px;
-          border-radius: 8px;
+          padding: 14px 25px; /* 增大点击区域 */
+          border-radius: 10px; /* 更大的圆角 */
           cursor: pointer;
           font-weight: 600;
           display: inline-flex;
           align-items: center;
-          gap: 8px;
+          gap: 10px;
           transition: all 0.3s ease;
           border: none;
-          box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-          font-size: 1rem;
+          box-shadow: 0 4px 10px rgba(0, 123, 255, 0.2); /* 蓝色阴影 */
+          font-size: 1.05rem; /* 字体微调 */
         }
 
         .file-input-label:hover {
-          background: #0056b3;
-          transform: translateY(-2px);
-          box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
+          background: #0056B3; /* 深蓝色 */
+          transform: translateY(-3px); /* 增加悬停效果 */
+          box-shadow: 0 6px 15px rgba(0, 123, 255, 0.3);
         }
 
         .action-btn {
-          background: #6c757d;
+          background: #6C757D; /* 柔和的灰色 */
+          box-shadow: 0 4px 10px rgba(108, 117, 125, 0.2); /* 灰色阴影 */
         }
 
         .action-btn:hover {
-          background: #5a6268;
-          transform: translateY(-2px);
-          box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
+          background: #5A6268; /* 深灰色 */
+          transform: translateY(-3px);
+          box-shadow: 0 6px 15px rgba(108, 117, 125, 0.3);
         }
 
         .action-btn:disabled {
-          background-color: #cccccc;
+          background-color: #E9ECEF; /* 浅灰色禁用背景 */
+          color: #ADB5BD !important; /* 浅灰色禁用文字 */
           cursor: not-allowed;
           box-shadow: none;
           transform: none;
-          color: #666 !important;
         }
+
+        /* 文件名显示区域 */
+        .file-display-area {
+          text-align: center;
+          margin-bottom: 25px; /* 增加间距 */
+          font-size: 1rem;
+          color: #495057; /* 深一点的灰色 */
+        }
+
+        .current-file-name {
+          font-weight: 700; /* 加粗 */
+          color: #007BFF; /* 品牌蓝色 */
+          word-break: break-all; /* 防止长文件名溢出 */
+        }
+
 
         #cy {
           width: 100%;
           /* 修复：使用 calc() 计算高度，减去 header, controls, footer 和 body padding 的大致高度 */
           /* 200px 是一个估算值，你可以根据实际布局调整 */
-          height: calc(100vh - 200px); 
-          border: 1px solid #ddd;
-          border-radius: 8px;
+          height: calc(100vh - 300px); /* 调整高度以适应新的间距和元素 */
+          border: 1px solid #DEE2E6; /* 浅边框 */
+          border-radius: 10px; /* 圆角 */
           background-color: #FFFFFF;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+          box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08); /* 柔和阴影 */
           transition: opacity 0.5s ease;
-          flex-grow: 1; /* 让图表容器也占据剩余空间 */
+          flex-grow: 1;
         }
 
         #cy.hidden {
@@ -605,24 +677,24 @@ export default function Home() {
           align-items: center;
           justify-content: center;
           /* 修复：与 #cy 相同的高度计算方式 */
-          height: calc(100vh - 200px); 
-          background-color: rgba(255, 255, 255, 0.8);
-          border-radius: 8px;
-          border: 1px solid #ddd;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-          color: #333;
-          font-size: 1.2rem;
-          flex-grow: 1; /* 让加载层也占据剩余空间 */
+          height: calc(100vh - 300px); /* 调整高度 */
+          background-color: rgba(255, 255, 255, 0.9); /* 更透明的白色背景 */
+          border-radius: 10px;
+          border: 1px solid #DEE2E6;
+          box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+          color: #343A40;
+          font-size: 1.3rem; /* 增大字体 */
+          flex-grow: 1;
         }
 
         .spinner {
-          border: 4px solid rgba(0, 0, 0, 0.1);
-          border-left-color: #007bff;
+          border: 5px solid rgba(0, 123, 255, 0.2); /* 蓝色透明边框 */
+          border-left-color: #007BFF; /* 品牌蓝色 */
           border-radius: 50%;
-          width: 40px;
-          height: 40px;
+          width: 50px; /* 增大 */
+          height: 50px; /* 增大 */
           animation: spin 1s linear infinite;
-          margin-bottom: 15px;
+          margin-bottom: 20px; /* 增加间距 */
         }
 
         @keyframes spin {
@@ -637,21 +709,21 @@ export default function Home() {
 
         .toast {
           visibility: hidden;
-          min-width: 250px;
-          margin-left: -125px;
-          background-color: #333;
+          min-width: 280px; /* 增大 */
+          margin-left: -140px; /* 居中 */
+          background-color: #343A40; /* 深灰色背景 */
           color: #fff;
           text-align: center;
-          border-radius: 5px;
-          padding: 16px;
+          border-radius: 8px; /* 圆角 */
+          padding: 18px; /* 增大内边距 */
           position: fixed;
           z-index: 10000;
           left: 50%;
-          bottom: 30px;
-          font-size: 14px;
+          bottom: 40px; /* 离底部更远 */
+          font-size: 15px; /* 字体微调 */
           opacity: 0;
           transition: opacity 0.5s, visibility 0.5s;
-          box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+          box-shadow: 0 6px 12px rgba(0, 0, 0, 0.25); /* 更明显的阴影 */
         }
 
         .toast.show {
@@ -660,42 +732,55 @@ export default function Home() {
         }
 
         .toast.error {
-          background-color: #dc3545;
+          background-color: #DC3545; /* 红色错误提示 */
+          box-shadow: 0 6px 12px rgba(220, 53, 69, 0.25);
         }
 
         .footer {
           margin-top: 40px;
           padding: 20px;
           text-align: center;
-          color: #777;
-          font-size: 0.9rem;
-          border-top: 1px solid #eee;
+          color: #6C757D; /* 柔和的灰色 */
+          font-size: 0.95rem;
+          border-top: 1px solid #E9ECEF; /* 分隔线 */
           width: 100%;
           max-width: 1200px;
         }
 
         .author-name {
           font-weight: bold;
-          color: #007bff;
+          color: #007BFF; /* 品牌蓝色 */
         }
 
         /* 响应式设计 */
         @media (max-width: 768px) {
+          main {
+            padding: 20px; /* 减小内边距 */
+          }
           .header h1 {
-            font-size: 1.8rem;
+            font-size: 2rem;
           }
           .controls {
             flex-direction: column;
             align-items: center;
+            gap: 15px;
           }
           .file-input-label, .action-btn {
-            width: 80%;
+            width: 90%; /* 增大按钮宽度 */
             text-align: center;
             justify-content: center;
+            padding: 12px 20px;
           }
           /* 修复：小屏幕下也使用 calc()，但可以调整减去的值 */
           #cy, .loading-overlay {
-            height: calc(100vh - 180px); /* 小屏幕下可能顶部/底部空间更小，可以调整 */
+            height: calc(100vh - 280px); /* 调整高度 */
+          }
+          .toast {
+            min-width: 90%;
+            margin-left: 0;
+            left: 5%;
+            right: 5%;
+            bottom: 20px;
           }
         }
       `}</style>
