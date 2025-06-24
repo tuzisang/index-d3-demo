@@ -1,6 +1,6 @@
 import Head from 'next/head'
 import Script from 'next/script'
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 
 // 定义常量，避免在每次渲染时重复创建
 const COLUMN_CHAIN = [22, 39, 56, 73, 90, 107, 125]
@@ -30,6 +30,11 @@ export default function Home() {
   const [selectedNodes, setSelectedNodes] = useState([])
   // 新增：高亮更新函数引用
   const updateMultiHighlightRef = useRef(null)
+  // 搜索相关
+  const [searchValue, setSearchValue] = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [showDropdown, setShowDropdown] = useState(false)
+  const [searchActiveIndex, setSearchActiveIndex] = useState(-1)
 
   // 提示消息函数
   const showToast = useCallback((message, isError = false) => {
@@ -597,6 +602,81 @@ export default function Home() {
     }
   }, [selectedNodes])
 
+  // 获取所有节点label和id
+  const allNodeOptions = useMemo(() => {
+    if (!cyRef.current) return [];
+    return cyRef.current.nodes().map(n => ({
+      id: n.id(),
+      label: n.data('label') || n.id()
+    })).filter(n => n.label && n.label !== '/');
+  }, [isLoading, uploadedFileName]);
+
+  // 简单拼音/模糊匹配（可扩展更强大算法）
+  const fuzzyMatch = (input, label) => {
+    if (!input) return false;
+    return label.toLowerCase().includes(input.toLowerCase());
+  };
+
+  // 搜索输入变化
+  const handleSearchChange = (e) => {
+    const val = e.target.value;
+    setSearchValue(val);
+    if (!val) {
+      setSearchResults([]);
+      setShowDropdown(false);
+      setSearchActiveIndex(-1);
+      return;
+    }
+    const results = allNodeOptions.filter(opt => fuzzyMatch(val, opt.label));
+    setSearchResults(results.slice(0, 10)); // 最多10条
+    setShowDropdown(true);
+    setSearchActiveIndex(-1);
+  };
+
+  // 选中某个搜索建议
+  const handleSelectNode = (nodeId) => {
+    setSearchValue('');
+    setSearchResults([]);
+    setShowDropdown(false);
+    setSearchActiveIndex(-1);
+    // 复用高亮逻辑，单选该节点
+    setSelectedNodes([nodeId]);
+    // 滚动到该节点（可选）
+    setTimeout(() => {
+      if (cyRef.current) {
+        const node = cyRef.current.getElementById(nodeId);
+        if (node) cyRef.current.center(node);
+      }
+    }, 200);
+  };
+
+  // 键盘上下选择
+  const handleSearchKeyDown = (e) => {
+    if (!showDropdown || searchResults.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      setSearchActiveIndex(idx => Math.min(idx + 1, searchResults.length - 1));
+      e.preventDefault();
+    } else if (e.key === 'ArrowUp') {
+      setSearchActiveIndex(idx => Math.max(idx - 1, 0));
+      e.preventDefault();
+    } else if (e.key === 'Enter') {
+      if (searchActiveIndex >= 0 && searchActiveIndex < searchResults.length) {
+        handleSelectNode(searchResults[searchActiveIndex].id);
+      }
+    }
+  };
+
+  // 点击外部关闭下拉
+  useEffect(() => {
+    const close = (e) => {
+      setShowDropdown(false);
+    };
+    if (showDropdown) {
+      document.addEventListener('click', close);
+      return () => document.removeEventListener('click', close);
+    }
+  }, [showDropdown]);
+
   return (
     <div className="container">
       <Head>
@@ -640,6 +720,31 @@ export default function Home() {
           </label>
           <button className="action-btn" id="reset-zoom" disabled={isLoading}>重置视图</button>
           <button className="action-btn" id="download-image" disabled={isLoading}>下载为图片</button>
+          <div className="search-box">
+            <input
+              type="text"
+              className="search-input"
+              placeholder="搜索节点名称..."
+              value={searchValue}
+              onChange={handleSearchChange}
+              onFocus={e => { if (searchResults.length > 0) setShowDropdown(true); }}
+              onKeyDown={handleSearchKeyDown}
+              autoComplete="off"
+            />
+            {showDropdown && searchResults.length > 0 && (
+              <ul className="search-dropdown">
+                {searchResults.map((opt, idx) => (
+                  <li
+                    key={opt.id}
+                    className={idx === searchActiveIndex ? 'active' : ''}
+                    onMouseDown={e => { e.preventDefault(); handleSelectNode(opt.id); }}
+                  >
+                    {opt.label}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
 
         {/* 新增：显示当前选择的 Excel 文件名 */}
@@ -1037,6 +1142,53 @@ export default function Home() {
           box-shadow: 0 8px 32px rgba(0,123,255,0.10);
           background: #fff;
           border-radius: 16px;
+        }
+        .search-box {
+          position: relative;
+          min-width: 220px;
+          width: 260px;
+          margin-right: 10px;
+        }
+        .search-input {
+          width: 100%;
+          padding: 12px 16px;
+          border-radius: 8px;
+          border: 1.5px solid #90A4AE;
+          font-size: 1.08rem;
+          outline: none;
+          transition: border 0.2s;
+          box-shadow: 0 2px 8px rgba(0,123,255,0.04);
+        }
+        .search-input:focus {
+          border: 1.5px solid #007BFF;
+          background: #f4f8ff;
+        }
+        .search-dropdown {
+          position: absolute;
+          top: 110%;
+          left: 0;
+          width: 100%;
+          background: #fff;
+          border: 1.5px solid #e3eafc;
+          border-radius: 8px;
+          box-shadow: 0 4px 16px rgba(0,123,255,0.10);
+          z-index: 1001;
+          max-height: 260px;
+          overflow-y: auto;
+          padding: 0;
+          margin: 0;
+          list-style: none;
+        }
+        .search-dropdown li {
+          padding: 10px 16px;
+          cursor: pointer;
+          font-size: 1.05rem;
+          color: #007BFF;
+          transition: background 0.15s, color 0.15s;
+        }
+        .search-dropdown li.active, .search-dropdown li:hover {
+          background: #e3f0ff;
+          color: #0056B3;
         }
       `}</style>
     </div>
