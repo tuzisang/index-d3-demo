@@ -12,16 +12,24 @@ const COLUMN_MAP = {
 // 定义 Cytoscape 内部使用的颜色常量，不再使用 CSS 变量
 const CY_NODE_COLOR = '#4FC3F7' // 浅蓝色
 const CY_EDGE_COLOR = '#90A4AE' // 柔和的灰色
-const CY_HIGHLIGHT_NODE_BG = '#FFEB3B' // 亮黄色
+const CY_HIGHLIGHT_NODE_BG = '#FFEB3B' // 亮黄色（祖先）
 const CY_HIGHLIGHT_NODE_BORDER = '#FFC107' // 橙黄色
 const CY_HIGHLIGHT_EDGE_COLOR = '#FF5722' // 橙红色
 const CY_EDGEHANDLE_COLOR = '#FF5722' // 橙红色
+// 新增高亮色
+const CY_CURRENT_NODE_COLOR = '#2196F3' // 当前节点蓝色
+const CY_DESCENDANT_NODE_BG = '#4CAF50' // 子孙绿色
+const CY_DESCENDANT_EDGE_COLOR = '#388E3C' // 子孙边绿色
 
 export default function Home() {
   const cyRef = useRef(null) // 使用 useRef 存储 Cytoscape 实例
   const fileInputRef = useRef(null); // 用于直接操作文件输入框
   const [isLoading, setIsLoading] = useState(false) // 加载状态
   const [uploadedFileName, setUploadedFileName] = useState('未选择文件') // 上传文件名状态
+  // 新增：多选支持
+  const [selectedNodes, setSelectedNodes] = useState([])
+  // 新增：高亮更新函数引用
+  const updateMultiHighlightRef = useRef(null)
 
   // 提示消息函数
   const showToast = useCallback((message, isError = false) => {
@@ -113,6 +121,38 @@ export default function Home() {
     return nodesCollection.union(edgesCollection)
   }, [cyRef])
 
+  // 获取下游路径函数
+  const getDownstreamPath = useCallback((startNode) => {
+    const pathNodes = new Set()
+    const pathEdges = new Set()
+    const queue = [startNode]
+
+    pathNodes.add(startNode.id())
+
+    let head = 0
+    while(head < queue.length) {
+      const currentNode = queue[head++]
+      const outgoingEdges = currentNode.outgoers('edge')
+      
+      outgoingEdges.forEach(edge => {
+        const targetNode = edge.target()
+        if (!pathNodes.has(targetNode.id())) {
+          pathNodes.add(targetNode.id())
+          queue.push(targetNode)
+        }
+        pathEdges.add(edge.id())
+      })
+    }
+    
+    const collectedNodes = cyRef.current.collection(Array.from(pathNodes).map(id => cyRef.current.getElementById(id)))
+    collectedNodes.edgesWith(collectedNodes).forEach(edge => pathEdges.add(edge.id()))
+
+    const nodesCollection = cyRef.current.collection(Array.from(pathNodes).map(id => cyRef.current.getElementById(id)))
+    const edgesCollection = cyRef.current.collection(Array.from(pathEdges).map(id => cyRef.current.getElementById(id)))
+
+    return nodesCollection.union(edgesCollection)
+  }, [cyRef])
+
   // 生成DAG图函数
   const generateDAG = useCallback((data) => {
     const container = document.getElementById('cy')
@@ -176,24 +216,54 @@ export default function Home() {
           }
         },
         {
-          selector: '.highlighted-node',
+          selector: '.highlighted-current',
+          style: {
+            'background-color': CY_CURRENT_NODE_COLOR,
+            'border-color': CY_CURRENT_NODE_COLOR,
+            'border-width': 3,
+            'color': '#333', // 当前节点文字深色
+            'font-size': '14px', // 字体变大
+            'z-index': 10000
+          }
+        },
+        {
+          selector: '.highlighted-ancestor',
           style: {
             'background-color': CY_HIGHLIGHT_NODE_BG,
             'border-color': CY_HIGHLIGHT_NODE_BORDER,
-            'font-weight': 'bold',
-            'color': '#333',
-            'text-outline-width': '1px',
-            'text-outline-color': '#fff',
+            'border-width': 2,
+            'color': '#333', // 祖先节点文字深色
+            'font-size': '14px', // 字体变大
             'z-index': 9999
           }
         },
         {
-          selector: '.highlighted-edge',
+          selector: '.highlighted-descendant',
+          style: {
+            'background-color': CY_DESCENDANT_NODE_BG,
+            'border-color': CY_DESCENDANT_NODE_BG,
+            'border-width': 2,
+            'color': '#333', // 子孙节点文字深色
+            'font-size': '14px', // 字体变大
+            'z-index': 9998
+          }
+        },
+        {
+          selector: '.highlighted-edge-ancestor',
           style: {
             'line-color': CY_HIGHLIGHT_EDGE_COLOR,
             'target-arrow-color': CY_HIGHLIGHT_EDGE_COLOR,
             'width': 2,
-            'z-index': 9998
+            'z-index': 9997
+          }
+        },
+        {
+          selector: '.highlighted-edge-descendant',
+          style: {
+            'line-color': CY_DESCENDANT_EDGE_COLOR,
+            'target-arrow-color': CY_DESCENDANT_EDGE_COLOR,
+            'width': 2,
+            'z-index': 9996
           }
         }
       ]
@@ -305,25 +375,70 @@ export default function Home() {
 
     let lastHighlightedElements = cyRef.current.collection()
 
+    // 新增：多选高亮逻辑，始终用 useRef 指向最新实现
+    updateMultiHighlightRef.current = (selectedNodeIds) => {
+      if (!cyRef.current) return;
+      cyRef.current.elements().removeClass('highlighted-current highlighted-ancestor highlighted-descendant highlighted-edge-ancestor highlighted-edge-descendant')
+      if (!selectedNodeIds.length) return;
+      const allAncestors = new Set()
+      const allDescendants = new Set()
+      const allAncestorEdges = new Set()
+      const allDescendantEdges = new Set()
+      selectedNodeIds.forEach(id => {
+        const node = cyRef.current.getElementById(id)
+        const up = getUpstreamPath(node)
+        up.nodes().forEach(n => { if (n.id() !== id) allAncestors.add(n.id()) })
+        up.edges().forEach(e => allAncestorEdges.add(e.id()))
+        const down = getDownstreamPath(node)
+        down.nodes().forEach(n => { if (n.id() !== id) allDescendants.add(n.id()) })
+        down.edges().forEach(e => allDescendantEdges.add(e.id()))
+      })
+      selectedNodeIds.forEach(id => {
+        const node = cyRef.current.getElementById(id)
+        node.addClass('highlighted-current')
+      })
+      Array.from(allAncestors).forEach(id => {
+        if (!selectedNodeIds.includes(id)) cyRef.current.getElementById(id).addClass('highlighted-ancestor')
+      })
+      Array.from(allAncestorEdges).forEach(id => {
+        cyRef.current.getElementById(id).addClass('highlighted-edge-ancestor')
+      })
+      Array.from(allDescendants).forEach(id => {
+        if (!selectedNodeIds.includes(id) && !allAncestors.has(id)) cyRef.current.getElementById(id).addClass('highlighted-descendant')
+      })
+      Array.from(allDescendantEdges).forEach(id => {
+        if (!allAncestorEdges.has(id)) cyRef.current.getElementById(id).addClass('highlighted-edge-descendant')
+      })
+    }
+
     // 节点点击事件
     cyRef.current.on('tap', 'node', function(evt){
       const node = evt.target
       const nodeLabel = node.data('label')
-
-      lastHighlightedElements.removeClass('highlighted-node highlighted-edge')
-
-      if (node.hasClass('highlighted-node')) { // 如果点击的是已高亮的节点，则取消高亮
-        lastHighlightedElements = cyRef.current.collection()
-        return
-      }
-
-      const elementsToHighlight = getUpstreamPath(node)
-
-      elementsToHighlight.nodes().addClass('highlighted-node')
-      elementsToHighlight.edges().addClass('highlighted-edge')
-
-      lastHighlightedElements = elementsToHighlight
-
+      const nodeId = node.id()
+      // 检查 Ctrl 是否按下
+      const isCtrl = evt.originalEvent && (evt.originalEvent.ctrlKey || evt.originalEvent.metaKey)
+      setSelectedNodes(prev => {
+        let next
+        if (isCtrl) {
+          // 多选
+          if (prev.includes(nodeId)) {
+            next = prev.filter(id => id !== nodeId)
+          } else {
+            next = [...prev, nodeId]
+          }
+        } else {
+          // 单选
+          if (prev.length === 1 && prev[0] === nodeId) {
+            next = []
+          } else {
+            next = [nodeId]
+          }
+        }
+        setTimeout(() => updateMultiHighlightRef.current(next), 0)
+        return next
+      })
+      // 复制到剪贴板逻辑（只复制最后点击的）
       if (nodeLabel) {
         navigator.clipboard.writeText(nodeLabel)
           .then(() => {
@@ -341,11 +456,11 @@ export default function Home() {
     // 背景点击事件，取消所有高亮
     cyRef.current.on('tap', function(evt){
       if(evt.target === cyRef.current) {
-        lastHighlightedElements.removeClass('highlighted-node highlighted-edge')
-        lastHighlightedElements = cyRef.current.collection()
+        setSelectedNodes([])
+        cyRef.current.elements().removeClass('highlighted-current highlighted-ancestor highlighted-descendant highlighted-edge-ancestor highlighted-edge-descendant')
       }
     })
-  }, [cyRef, showToast, getUpstreamPath])
+  }, [cyRef, showToast, getUpstreamPath, getDownstreamPath])
 
   // 文件处理函数
   const handleFile = useCallback(async (e) => {
@@ -475,6 +590,13 @@ export default function Home() {
     checkLibs(); // 首次检查
   }, [handleFile, resetZoom, downloadImage]) // 依赖项确保回调函数是最新的
 
+  // 监听 selectedNodes 变化，自动高亮
+  useEffect(() => {
+    if (cyRef.current && updateMultiHighlightRef.current) {
+      updateMultiHighlightRef.current(selectedNodes)
+    }
+  }, [selectedNodes])
+
   return (
     <div className="container">
       <Head>
@@ -494,9 +616,20 @@ export default function Home() {
       />
 
       <main>
-        <div className="header">
-          <h1>全景血缘图生成器 (Cytoscape版)</h1>
-          <p>上传Excel文件，自动生成全景血缘关系图</p>
+        <div className="hero-bg">
+          <div className="hero-content">
+            <h1>全景血缘图生成器</h1>
+            <p className="subtitle">Cytoscape 交互版 · Excel 一键可视化</p>
+          </div>
+        </div>
+        <div className="usage-guide usage-float">
+          <h3>✨ 使用说明</h3>
+          <ul>
+            <li>点击节点：高亮祖先和子孙链路</li>
+            <li><b>Ctrl</b>（或 <b>Cmd</b>）多选节点：对比多条路径</li>
+            <li>再次点击已选节点可取消，点击空白处清空高亮</li>
+            <li>点击节点名称自动复制到剪贴板</li>
+          </ul>
         </div>
 
         <div className="controls">
@@ -510,8 +643,9 @@ export default function Home() {
         </div>
 
         {/* 新增：显示当前选择的 Excel 文件名 */}
-        <div className="file-display-area">
-          <p>当前文件: <span className="current-file-name">{uploadedFileName}</span></p>
+        <div className="file-display-area card-float">
+          <span className="file-label">当前文件：</span>
+          <span className="current-file-name">{uploadedFileName}</span>
         </div>
 
         {isLoading && (
@@ -521,12 +655,14 @@ export default function Home() {
           </div>
         )}
 
-        <div id="cy" className={isLoading ? 'hidden' : ''}></div>
+        <div className={"cy-area card-float" + (isLoading ? ' hidden' : '')}>
+          <div id="cy"></div>
+        </div>
 
         <div id="toast-message" className="toast"></div>
       </main>
 
-      <footer className="footer">
+      <footer className="footer card-float">
         <p>由 <span className="author-name">Tzz</span> 优化与维护</p>
       </footer>
 
@@ -539,54 +675,97 @@ export default function Home() {
         }
 
         body {
-          background-color: #F8F9FA; /* 浅灰色背景 */
-          color: #343A40; /* 深灰色文字 */
-          font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; /* 优先使用 Inter 字体 */
-          padding: 20px;
+          background: linear-gradient(120deg, #6dd5ed 0%, #f8f9fa 100%);
+          color: #343A40;
+          font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+          padding: 0;
           min-height: 100vh;
           display: flex;
           flex-direction: column;
           align-items: center;
         }
 
+        .hero-bg {
+          width: 100vw;
+          min-height: 220px;
+          background: linear-gradient(100deg, #007BFF 0%, #4FC3F7 100%);
+          box-shadow: 0 8px 32px rgba(0,123,255,0.10);
+          display: flex;
+          align-items: flex-end;
+          justify-content: center;
+          position: relative;
+        }
+        .hero-content {
+          text-align: center;
+          margin-bottom: 32px;
+        }
+        .hero-content h1 {
+          font-size: 3.2rem;
+          color: #fff;
+          font-weight: 900;
+          letter-spacing: 2px;
+          text-shadow: 0 6px 32px rgba(0,123,255,0.18), 0 1px 0 #fff;
+        }
+        .subtitle {
+          color: #e3f0ff;
+          font-size: 1.25rem;
+          margin-top: 10px;
+          letter-spacing: 1px;
+          text-shadow: 0 2px 8px rgba(0,123,255,0.10);
+        }
+
         .container {
-          width: 100%;
-          max-width: 1200px;
-          padding: 0 15px;
+          width: 100vw;
+          max-width: 100vw;
+          padding: 0;
           display: flex;
           flex-direction: column;
           align-items: center;
           flex-grow: 1;
+          margin-top: -80px;
         }
 
         main {
-          width: 100%;
+          width: 100vw;
+          max-width: 100vw;
           flex-grow: 1;
           display: flex;
           flex-direction: column;
-          background-color: #FFFFFF; /* 主内容区白色背景 */
-          border-radius: 12px; /* 更大的圆角 */
-          box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08); /* 更柔和的阴影 */
-          padding: 30px; /* 增加内边距 */
+          align-items: center;
+          background: transparent;
+          box-shadow: none;
+          padding: 0 0 40px 0;
         }
 
-        .header {
-          text-align: center;
-          margin-bottom: 30px; /* 增加间距 */
-          padding-bottom: 15px;
-          border-bottom: 1px solid #E9ECEF; /* 增加分隔线 */
+        .usage-guide {
+          background: #fff;
+          border: 1.5px solid #e3eafc;
+          border-radius: 16px;
+          margin: 0 auto 32px auto;
+          padding: 22px 32px 16px 32px;
+          max-width: 700px;
+          min-width: 320px;
+          box-shadow: 0 8px 32px rgba(0,123,255,0.10);
+          position: relative;
+          top: -60px;
         }
-
-        .header h1 {
-          font-size: 2.5rem; /* 增大标题 */
+        .usage-guide.usage-float {
+          z-index: 10;
+        }
+        .usage-guide h3 {
+          color: #007BFF;
+          font-size: 1.18rem;
           margin-bottom: 10px;
-          color: #007BFF; /* 品牌蓝色 */
-          font-weight: 700; /* 加粗 */
+          font-weight: 700;
         }
-
-        .header p {
-          font-size: 1.1rem;
-          color: #6C757D; /* 柔和的灰色 */
+        .usage-guide ul {
+          text-align: left;
+          margin-left: 1.2em;
+          color: #495057;
+          font-size: 1.08rem;
+        }
+        .usage-guide li {
+          margin-bottom: 8px;
         }
 
         .controls {
@@ -595,80 +774,116 @@ export default function Home() {
           margin-bottom: 25px; /* 增加间距 */
           justify-content: center;
           flex-wrap: wrap;
+          background: #fff;
+          border-radius: 16px;
+          box-shadow: 0 4px 24px rgba(0,123,255,0.07);
+          padding: 24px 0 18px 0;
+          margin-top: -30px;
+          z-index: 5;
+          max-width: 700px;
+          min-width: 320px;
+          margin-left: auto;
+          margin-right: auto;
         }
 
         .file-input-label, .action-btn {
-          background: #007BFF; /* 品牌蓝色 */
+          background: linear-gradient(90deg, #007BFF 0%, #4FC3F7 100%);
           color: white !important;
-          padding: 14px 25px; /* 增大点击区域 */
-          border-radius: 10px; /* 更大的圆角 */
+          padding: 15px 28px;
+          border-radius: 12px;
           cursor: pointer;
           font-weight: 600;
           display: inline-flex;
           align-items: center;
           gap: 10px;
-          transition: all 0.3s ease;
+          transition: all 0.25s cubic-bezier(.4,2,.6,1);
           border: none;
-          box-shadow: 0 4px 10px rgba(0, 123, 255, 0.2); /* 蓝色阴影 */
-          font-size: 1.05rem; /* 字体微调 */
+          box-shadow: 0 4px 16px rgba(0, 123, 255, 0.13);
+          font-size: 1.08rem;
+          letter-spacing: 0.5px;
+          min-width: 160px;
+          justify-content: center;
         }
-
-        .file-input-label:hover {
-          background: #0056B3; /* 深蓝色 */
-          transform: translateY(-3px); /* 增加悬停效果 */
-          box-shadow: 0 6px 15px rgba(0, 123, 255, 0.3);
+        .file-input-label:hover, .action-btn:hover {
+          background: linear-gradient(90deg, #0056B3 0%, #4FC3F7 100%);
+          transform: translateY(-2px) scale(1.03);
+          box-shadow: 0 8px 24px rgba(0, 123, 255, 0.18);
         }
-
         .action-btn {
-          background: #6C757D; /* 柔和的灰色 */
-          box-shadow: 0 4px 10px rgba(108, 117, 125, 0.2); /* 灰色阴影 */
+          background: linear-gradient(90deg, #6C757D 0%, #90A4AE 100%);
+          box-shadow: 0 4px 16px rgba(108, 117, 125, 0.13);
         }
-
         .action-btn:hover {
-          background: #5A6268; /* 深灰色 */
-          transform: translateY(-3px);
-          box-shadow: 0 6px 15px rgba(108, 117, 125, 0.3);
+          background: linear-gradient(90deg, #5A6268 0%, #90A4AE 100%);
         }
-
         .action-btn:disabled {
-          background-color: #E9ECEF; /* 浅灰色禁用背景 */
-          color: #ADB5BD !important; /* 浅灰色禁用文字 */
+          background: #E9ECEF;
+          color: #ADB5BD !important;
           cursor: not-allowed;
           box-shadow: none;
           transform: none;
         }
 
-        /* 文件名显示区域 */
         .file-display-area {
           text-align: center;
-          margin-bottom: 25px; /* 增加间距 */
-          font-size: 1rem;
-          color: #495057; /* 深一点的灰色 */
+          margin-bottom: 25px;
+          font-size: 1.08rem;
+          color: #495057;
+          background: #fff;
+          border-radius: 14px;
+          box-shadow: 0 2px 12px rgba(0,123,255,0.07);
+          padding: 14px 0 10px 0;
+          max-width: 700px;
+          min-width: 320px;
+          margin-left: auto;
+          margin-right: auto;
         }
-
+        .file-label {
+          color: #6C757D;
+          font-weight: 500;
+        }
         .current-file-name {
-          font-weight: 700; /* 加粗 */
-          color: #007BFF; /* 品牌蓝色 */
-          word-break: break-all; /* 防止长文件名溢出 */
+          font-weight: 700;
+          color: #007BFF;
+          word-break: break-all;
+          margin-left: 8px;
         }
 
-
-        #cy {
-          width: 100%;
-          /* 修复：使用 calc() 计算高度，减去 header, controls, footer 和 body padding 的大致高度 */
-          /* 200px 是一个估算值，你可以根据实际布局调整 */
-          height: calc(100vh - 300px); /* 调整高度以适应新的间距和元素 */
-          border: 1px solid #DEE2E6; /* 浅边框 */
-          border-radius: 10px; /* 圆角 */
-          background-color: #FFFFFF;
-          box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08); /* 柔和阴影 */
-          transition: opacity 0.5s ease;
-          flex-grow: 1;
+        .cy-area {
+          background: #fff;
+          border-radius: 18px;
+          box-shadow: 0 8px 32px rgba(0,123,255,0.10);
+          padding: 18px 0 0 0;
+          margin-bottom: 32px;
+          margin-top: 0;
+          min-height: 420px;
+          position: relative;
+          width: 100vw;
+          min-width: 320px;
+          margin-left: auto;
+          margin-right: auto;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
         }
-
-        #cy.hidden {
+        .cy-area.hidden {
           opacity: 0;
           pointer-events: none;
+        }
+        #cy {
+          width: 95vw;
+          max-width: 95vw;
+          min-width: 320px;
+          height: 60vh;
+          min-height: 350px;
+          max-height: 70vh;
+          border: 1.5px solid #DEE2E6;
+          border-radius: 12px;
+          background-color: #FFFFFF;
+          box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+          transition: opacity 0.5s ease;
+          flex-grow: 1;
+          margin: 0 auto;
         }
 
         .loading-overlay {
@@ -676,25 +891,24 @@ export default function Home() {
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          /* 修复：与 #cy 相同的高度计算方式 */
-          height: calc(100vh - 300px); /* 调整高度 */
-          background-color: rgba(255, 255, 255, 0.9); /* 更透明的白色背景 */
+          height: 60vh;
+          background-color: rgba(255, 255, 255, 0.9);
           border-radius: 10px;
           border: 1px solid #DEE2E6;
           box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
           color: #343A40;
-          font-size: 1.3rem; /* 增大字体 */
+          font-size: 1.3rem;
           flex-grow: 1;
         }
 
         .spinner {
-          border: 5px solid rgba(0, 123, 255, 0.2); /* 蓝色透明边框 */
-          border-left-color: #007BFF; /* 品牌蓝色 */
+          border: 5px solid rgba(0, 123, 255, 0.2);
+          border-left-color: #007BFF;
           border-radius: 50%;
-          width: 50px; /* 增大 */
-          height: 50px; /* 增大 */
+          width: 50px;
+          height: 50px;
           animation: spin 1s linear infinite;
-          margin-bottom: 20px; /* 增加间距 */
+          margin-bottom: 20px;
         }
 
         @keyframes spin {
@@ -709,79 +923,120 @@ export default function Home() {
 
         .toast {
           visibility: hidden;
-          min-width: 280px; /* 增大 */
-          margin-left: -140px; /* 居中 */
-          background-color: #343A40; /* 深灰色背景 */
+          min-width: 320px;
+          margin-left: -160px;
+          background: linear-gradient(90deg, #007BFF 0%, #4FC3F7 100%);
           color: #fff;
           text-align: center;
-          border-radius: 8px; /* 圆角 */
-          padding: 18px; /* 增大内边距 */
+          border-radius: 12px;
+          padding: 22px;
           position: fixed;
           z-index: 10000;
           left: 50%;
-          bottom: 40px; /* 离底部更远 */
-          font-size: 15px; /* 字体微调 */
+          bottom: 48px;
+          font-size: 16px;
           opacity: 0;
           transition: opacity 0.5s, visibility 0.5s;
-          box-shadow: 0 6px 12px rgba(0, 0, 0, 0.25); /* 更明显的阴影 */
+          box-shadow: 0 8px 24px rgba(0, 123, 255, 0.18);
         }
-
         .toast.show {
           visibility: visible;
           opacity: 1;
         }
-
         .toast.error {
-          background-color: #DC3545; /* 红色错误提示 */
-          box-shadow: 0 6px 12px rgba(220, 53, 69, 0.25);
+          background: linear-gradient(90deg, #DC3545 0%, #ffb3b3 100%);
+          box-shadow: 0 8px 24px rgba(220, 53, 69, 0.18);
         }
 
         .footer {
           margin-top: 40px;
-          padding: 20px;
+          padding: 24px 0 18px 0;
           text-align: center;
-          color: #6C757D; /* 柔和的灰色 */
-          font-size: 0.95rem;
-          border-top: 1px solid #E9ECEF; /* 分隔线 */
-          width: 100%;
-          max-width: 1200px;
+          color: #6C757D;
+          font-size: 1.02rem;
+          border-top: none;
+          width: 100vw;
+          max-width: 900px;
+          min-width: 320px;
+          background: #fff;
+          border-radius: 14px;
+          box-shadow: 0 2px 12px rgba(0,123,255,0.07);
+          margin-left: auto;
+          margin-right: auto;
         }
-
         .author-name {
           font-weight: bold;
-          color: #007BFF; /* 品牌蓝色 */
+          color: #007BFF;
         }
 
         /* 响应式设计 */
-        @media (max-width: 768px) {
-          main {
-            padding: 20px; /* 减小内边距 */
+        @media (max-width: 900px) {
+          .hero-content h1 {
+            font-size: 2.1rem;
           }
-          .header h1 {
-            font-size: 2rem;
+          .usage-guide, .file-display-area, .cy-area, .footer {
+            max-width: 98vw;
+            min-width: 0;
+            padding-left: 8px;
+            padding-right: 8px;
+            margin-left: auto;
+            margin-right: auto;
+          }
+        }
+        @media (max-width: 600px) {
+          .hero-bg {
+            min-height: 120px;
+          }
+          .hero-content {
+            margin-bottom: 16px;
+          }
+          .hero-content h1 {
+            font-size: 1.3rem;
+          }
+          .subtitle {
+            font-size: 0.95rem;
+          }
+          .usage-guide {
+            padding: 12px 4px 8px 4px;
+            top: -30px;
           }
           .controls {
             flex-direction: column;
             align-items: center;
-            gap: 15px;
+            gap: 12px;
+            padding: 12px 0 8px 0;
           }
           .file-input-label, .action-btn {
-            width: 90%; /* 增大按钮宽度 */
-            text-align: center;
-            justify-content: center;
-            padding: 12px 20px;
+            width: 98vw;
+            min-width: 0;
+            padding: 10px 0;
+            font-size: 1rem;
           }
-          /* 修复：小屏幕下也使用 calc()，但可以调整减去的值 */
+          .file-display-area, .cy-area, .footer {
+            padding-left: 2px;
+            padding-right: 2px;
+            margin-left: auto;
+            margin-right: auto;
+          }
           #cy, .loading-overlay {
-            height: calc(100vh - 280px); /* 调整高度 */
+            height: 40vh;
+            min-height: 180px;
           }
           .toast {
-            min-width: 90%;
+            min-width: 90vw;
             margin-left: 0;
-            left: 5%;
-            right: 5%;
-            bottom: 20px;
+            left: 5vw;
+            right: 5vw;
+            bottom: 12px;
+            font-size: 14px;
+            padding: 12px;
           }
+        }
+        /* 卡片悬浮效果 */
+        .card-float {
+          box-shadow: 0 8px 32px rgba(0,123,255,0.10);
+          background: #fff;
+          border-radius: 16px;
         }
       `}</style>
     </div>
