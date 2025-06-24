@@ -253,7 +253,7 @@ export default function Home() {
             let cellValue = data[i][colIndex]
             cellValue = String(cellValue).toLowerCase().trim()
 
-            if (!cellValue || cellValue === '/') continue
+            if (cellValue === 'undefined' || cellValue === '/') continue
 
             const nodeId = `${colName}_${cellValue}`
             if (!nodeMap.has(nodeId)) {
